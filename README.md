@@ -1,5 +1,5 @@
 # rtgg-mini
-A simple, lightweight [racetime.gg] client
+A simple, lightweight (racetime.gg) client
 Work in progress.
 
 ## Instructions
