@@ -3,6 +3,9 @@ from urllib.parse import urlparse, parse_qs
 from http.server import BaseHTTPRequestHandler
 from socketserver import ThreadingTCPServer
 
+def rand_string(dlen):
+    return base64.b64encode(os.urandom(dlen)).decode()
+
 def read_secrets():
     with open('secrets.json', 'r') as secrets:
         j = json.loads(secrets.read())
@@ -64,7 +67,7 @@ class RedirectServer(ThreadingTCPServer):
 def do_auth():
     response_type = 'code'
     scope = 'read chat_message race_action'
-    state = base64.b64encode(os.urandom(32)).decode()
+    state = rand_string(32)
     
     full_url = base_url + auth_endpoint + '?response_type=%s&client_id=%s&redirect_uri=%s&scope=%s&state=%s' % (response_type, client_id, redirect_uri, scope, state)
     webbrowser.open(full_url)
@@ -97,7 +100,8 @@ def get_user_info():
 
 
 def token_request(data):
-    if client_code == '':
+    print('Need client code.. it is ' + str(client_code))
+    if client_code == '' or client_code is None:
         return None, None
     
     full_url = base_url + token_endpoint
@@ -107,13 +111,16 @@ def token_request(data):
         token = j['access_token']
         refresh_token = j['refresh_token']
         write_secret('refresh_token', refresh_token)
+        print('Success. token %s refresh %s' % (token, refresh_token))
         return token, refresh_token
     else:
+        print('Error doing token request')
+        print(r.text)
         return None, None
 
 
 # get a token + refresh token
-def get_token():
+def get_new_token():
     data = {
         'grant_type': 'authorization_code',
         'code': client_code,
@@ -124,7 +131,7 @@ def get_token():
 
 # refresh token
 def try_renew_access():
-    if refresh_token == '':
+    if refresh_token == '' or refresh_token is None:
         return None, None
     
     data = {
@@ -136,24 +143,38 @@ def try_renew_access():
         }
     return token_request(data)
 
+# select the right method for getting tokens
+def get_tokens():
+    print('Checking refresh token: ' + str(refresh_token))
+    if refresh_token == '' or refresh_token is None:
+        print('getting new')
+        return get_new_token()
+    else:
+        print('refreshing')
+        return try_renew_access()
+
 
 def authorize():
-    global auth_token
+    global auth_token, refresh_token, client_code
     # 1. try to get user info
     user_info = get_user_info()
     if user_info is not None:
+        print('User info get success :)')
         return True
     
     # 2. if this fails, try to renew access
-    auth_token, refresh_token = try_renew_access()
+    auth_token, refresh_token = get_tokens()
     if auth_token is not None:
+        print('Token refresh success :)')
         return True
     
     # 3. if that failed, ask user to authenticate
-    code = do_auth()
-    if code is None:
+    client_code = do_auth()
+    if client_code is None:
         return False
 
     # 4. user is authorized :)
-    auth_token, refresh_token = get_token()
+    print('Auth code get success :)')
+    auth_token, refresh_token = get_tokens()
+    print('Final auth step complete! token %s renew %s' % (auth_token, refresh_token))
     return True
